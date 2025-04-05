@@ -5984,6 +5984,21 @@ class _RoiWrapper (BlitzObjectWrapper):
                 ).findAllByQuery(query, params, self._conn.SERVICE_OPTS):
             yield shape
 
+    def countChildren(self):
+        """
+        Counts available number of child objects.
+
+        :return:    The number of child objects available
+        :rtype:     Long
+        """
+
+        klass = "shapes"
+        self._cached_countChildren = self._conn.getContainerService(
+            ).getCollectionCount(
+                self.OMERO_CLASS, klass, [self._oid], None,
+                self._conn.SERVICE_OPTS)[self._oid]
+        return self._cached_countChildren
+
 
 RoiWrapper = _RoiWrapper
 
