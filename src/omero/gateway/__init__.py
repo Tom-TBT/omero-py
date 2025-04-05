@@ -5957,6 +5957,34 @@ class _RoiWrapper (BlitzObjectWrapper):
         if self._obj.image is not None:
             return ImageWrapper(self._conn, self._obj.image)
 
+    def _listChildren(self, ns=None, val=None, params=None):
+        """
+        List Shapes in this ROI.
+
+        :rtype: generator of Ice client proxy objects for the child nodes
+        :return: child objects.
+        """
+        if not params:
+            params = omero.sys.Parameters()
+        if not params.map:
+            params.map = {}
+        params.map["roiid"] = rlong(self._oid)
+        query = ("select s from Shape as s "
+                 "join fetch s.details.creationEvent "
+                 "join fetch s.details.owner "
+                 "join fetch s.details.group "
+                 "where s.roi.id = :roiid")
+
+        if val is not None:
+            if isinstance(val, str):
+                params.map["val"] = omero_type(val)
+                query += " and s.textValue=:val"
+        query += " order by s.theC, s.theZ, s.theT"
+        for shape in self._conn.getQueryService(
+                ).findAllByQuery(query, params, self._conn.SERVICE_OPTS):
+            yield shape
+
+
 RoiWrapper = _RoiWrapper
 
 
