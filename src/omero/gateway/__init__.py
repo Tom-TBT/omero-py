@@ -5999,6 +5999,31 @@ class _RoiWrapper (BlitzObjectWrapper):
                 self._conn.SERVICE_OPTS)[self._oid]
         return self._cached_countChildren
 
+    def getFolderLinks(self, pids=None):
+        """
+        Get a list of folder objects links.
+
+        :param pids:    List of parent folder IDs
+        :type pids:     :class:`Long`
+        :rtype:         List of :class:`FolderWrapper`
+        :return:        List of folder image links
+        """
+
+        link_class = "FolderRoiLink"
+        query_serv = self._conn.getQueryService()
+        p = omero.sys.Parameters()
+        p.map = {}
+        p.map["child"] = rlong(self.id)
+        sql = "select pchl from %s as pchl " \
+            "left outer join fetch pchl.parent as parent " \
+            "left outer join fetch pchl.child as child " \
+            "where child.id=:child" % link_class
+        if isinstance(pids, list) and len(pids) > 0:
+            p.map["parent"] = rlist([rlong(pa) for pa in pids])
+            sql += " and parent.id in (:parent)"
+        for pchl in query_serv.findAllByQuery(sql, p, self._conn.SERVICE_OPTS):
+            yield BlitzObjectWrapper(self, pchl)
+
 
 RoiWrapper = _RoiWrapper
 
@@ -10454,7 +10479,6 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
         return [RoiWrapper(self._conn, roi) for roi in
                 self._get_rois(shapeType, filterByCurrentUser)]
 
-
     def getROICount(self, shapeType=None, filterByCurrentUser=False):
         """
         Count number of ROIs associated to an image
@@ -10482,6 +10506,31 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
             # return values so we want the value of row one, column one.
             return count[0][0].getValue()
         return len(self._get_rois(shapeType, filterByCurrentUser))
+
+    def getFolderLinks(self, pids=None):
+        """
+        Get a list of folder objects links.
+
+        :param pids:    List of parent folder IDs
+        :type pids:     :class:`Long`
+        :rtype:         List of :class:`FolderWrapper`
+        :return:        List of folder image links
+        """
+
+        link_class = "FolderImageLink"
+        query_serv = self._conn.getQueryService()
+        p = omero.sys.Parameters()
+        p.map = {}
+        p.map["child"] = rlong(self.id)
+        sql = "select pchl from %s as pchl " \
+            "left outer join fetch pchl.parent as parent " \
+            "left outer join fetch pchl.child as child " \
+            "where child.id=:child" % link_class
+        if isinstance(pids, list) and len(pids) > 0:
+            p.map["parent"] = rlist([rlong(pa) for pa in pids])
+            sql += " and parent.id in (:parent)"
+        for pchl in query_serv.findAllByQuery(sql, p, self._conn.SERVICE_OPTS):
+            yield BlitzObjectWrapper(self, pchl)
 
 ImageWrapper = _ImageWrapper
 
@@ -11100,6 +11149,166 @@ class _InstrumentWrapper (BlitzObjectWrapper):
 
 InstrumentWrapper = _InstrumentWrapper
 
+from omero_model_FolderI import FolderI
+
+class _FolderWrapper(BlitzObjectWrapper):
+    """
+    omero_model_DatasetI class wrapper extends BlitzObjectWrapper.
+    """
+
+    OMERO_CLASS = 'Folder'
+    LINK_CLASS = "DatasetImageLink"
+    CHILD_WRAPPER_CLASS = 'ImageWrapper'
+    PARENT_WRAPPER_CLASS = 'ProjectWrapper'
+
+    def __init__(self, *args, **kwargs):
+        """
+        Initialises the Annotation wrapper and 'link' if in kwargs
+        """
+        super(_FolderWrapper, self).__init__(*args, **kwargs)
+        #self.link = kwargs.get('link')
+        if self._obj is None:
+            self._obj = FolderI()
+
+    @staticmethod
+    def LINK_PARENT(link):
+        """Direct parent is Folder. No Link between Folder and ParentFolder."""
+        return link
+
+    def countChildren(self):
+        """
+        Counts available number of child Folders.
+
+        :return:    The number of child Folders available
+        :rtype:     Long
+        """
+
+        klass = "childFolders"
+        self._cached_countChildren = self._conn.getContainerService(
+            ).getCollectionCount(
+                self.OMERO_CLASS, klass, [self._oid], None,
+                self._conn.SERVICE_OPTS)[self._oid]
+        return self._cached_countChildren
+
+    def _listChildren(self, ns=None, val=None, params=None):
+        """
+        Lists available child folders.
+
+        :rtype: generator of Ice client proxy objects for the child nodes
+        :return: child folders.
+        """
+        if not params:
+            params = omero.sys.Parameters()
+        if not params.map:
+            params.map = {}
+        params.map["foid"] = rlong(self._oid)
+        query = "select c from Folder as f"
+        if ns is not None:
+            params.map["ns"] = omero_type(ns)
+        query += """ join fetch f.childFolders as c
+                     left outer join fetch c.annotationLinks as ial
+                     left outer join fetch ial.child as a """
+        query += " where f.id=:foid"
+        if ns is not None:
+            query += " and a.ns=:ns"
+            if val is not None:
+                if isinstance(val, str):
+                    params.map["val"] = omero_type(val)
+                    query += " and a.textValue=:val"
+        query += " order by c.name"
+        for child in (x for x in self._conn.getQueryService(
+                ).findAllByQuery(query, params, self._conn.SERVICE_OPTS)):
+            yield child
+
+    def listParents(self, withlinks=False):
+        """
+        Lists available parent folder.
+
+        :type withlinks: Boolean
+        :param withlinks: Not in use. No link class between Folders
+        :rtype: list of :class:`BlitzObjectWrapper`
+            or tuple(:class:`BlitzObjectWrapper`, :class:`BlitzObjectWrapper`)
+        :return: the parent folder in a list
+        """
+        param = omero.sys.Parameters()  # TODO: What can I use this for?
+        parentnodes = []
+
+        t = self._conn.getQueryService().findAllByQuery(
+            "select f.parentFolder from Folder as f where f.id=%i"
+            % (self._oid),
+            param, self._conn.SERVICE_OPTS)
+        parentnodes = [FolderWrapper(x) for x in t]
+        return parentnodes
+
+    def getParentLinks(self, pids=None):
+        """
+        Folders have no link to parent objects. Use getParent instead.
+        """
+
+        if self.PARENT_WRAPPER_CLASS is None:
+            raise AttributeError("This object has no links to parent " +
+                                 "objects. Use getParent instead.")
+
+    def getChildLinks(self, chids=None):
+        """
+        Folders have no link to child objects. Use listChildren instead.
+        """
+
+        if self.CHILD_WRAPPER_CLASS is None:
+            raise AttributeError("This object has no links to childs " +
+                                 "objects. Use listChildren instead.")
+
+    def getImageLinks(self, chids=None):
+        """
+        Get a list of child image links.
+
+        :param chids:   List of image IDs
+        :type chids:    :class:`Long`
+        :rtype:         List of :class:`BlitzObjectWrapper`
+        :return:        List of image object links
+        """
+
+        query_serv = self._conn.getQueryService()
+        p = omero.sys.Parameters()
+        p.map = {}
+        p.map["parent"] = rlong(self.id)
+        sql = ("select pchl from %s as pchl left outer join "
+               "fetch pchl.child as child left outer join "
+               "fetch pchl.parent as parent where parent.id=:parent"
+               % "FolderImageLink")
+        if isinstance(chids, list) and len(chids) > 0:
+            p.map["children"] = rlist([rlong(ch) for ch in chids])
+            sql += " and child.id in (:children)"
+        for pchl in query_serv.findAllByQuery(sql, p, self._conn.SERVICE_OPTS):
+            yield BlitzObjectWrapper(self, pchl)
+
+    def getRoiLinks(self, chids=None):
+        """
+        Get a list of child ROI links.
+
+        :param chids:   List of ROI IDs
+        :type chids:    :class:`Long`
+        :rtype:         List of :class:`BlitzObjectWrapper`
+        :return:        List of ROI object links
+        """
+
+        query_serv = self._conn.getQueryService()
+        p = omero.sys.Parameters()
+        p.map = {}
+        p.map["parent"] = rlong(self.id)
+        sql = ("select pchl from %s as pchl left outer join "
+               "fetch pchl.child as child left outer join "
+               "fetch pchl.parent as parent where parent.id=:parent"
+               % "FolderRoiLink")
+        if isinstance(chids, list) and len(chids) > 0:
+            p.map["children"] = rlist([rlong(ch) for ch in chids])
+            sql += " and child.id in (:children)"
+        for pchl in query_serv.findAllByQuery(sql, p, self._conn.SERVICE_OPTS):
+            yield BlitzObjectWrapper(self, pchl)
+
+FolderWrapper = _FolderWrapper
+
+
 KNOWN_WRAPPERS = {}
 
 
@@ -11119,6 +11328,7 @@ def refreshWrappers():
                            "shape": ShapeWrapper,
                            "experimenter": ExperimenterWrapper,
                            "experimentergroup": ExperimenterGroupWrapper,
+                           "folder": FolderWrapper,
                            "originalfile": OriginalFileWrapper,
                            "fileset": FilesetWrapper,
                            "commentannotation": CommentAnnotationWrapper,
