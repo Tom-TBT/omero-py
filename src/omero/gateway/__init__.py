@@ -165,6 +165,8 @@ def getAnnotationLinkTableName(objecttype):
         return "PlateAcquisitionAnnotationLink"
     if objecttype == "well":
         return "WellAnnotationLink"
+    if objecttype == "roi":
+        return "RoiAnnotationLink"
     return None
 
 
